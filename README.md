@@ -1,9 +1,13 @@
 # Button press detector
 
-This implements a version of [THE ULTIMATE DEBOUNCER(TM) from hackaday](https://hackaday.com/2015/12/10/embed-with-elliot-debounce-your-noisy-buttons-part-ii/
-).
+## Changes in Fork
 
-It can monitor multiple pins, and sends button events over a queue for your application to process.
+Forked from [craftmetrics's implementation](https://github.com/craftmetrics/esp32-button).
+
+This fork introduces the following changes:
+- Can create multilple instances via structs and each one gets thier own queue.
+- include gaurds and c++ ready.
+
 
 ## Available input GPIO pins
 
@@ -15,14 +19,22 @@ Only the following pins can be used as inputs on the ESP32:
 ## Example Usage
 
 ```
+button_info_t button_info = {0};
+
+gpio_num_t gpio_arr[...] = {GPIO_NUM_X, ...};
+ESP_ERROR_CHECK(button_init(&button_info, gpio_arr));
+
+QueueHandle_t button_event_queue = button_create_queue();
+ESP_ERROR_CHECK(button_set_queue(&button_info, button_event_queue));
+
 button_event_t ev;
-QueueHandle_t button_events = button_init(PIN_BIT(BUTTON_1) | PIN_BIT(BUTTON_2));
+
 while (true) {
-    if (xQueueReceive(button_events, &ev, 1000/portTICK_PERIOD_MS)) {
-        if ((ev.pin == BUTTON_1) && (ev.event == BUTTON_DOWN)) {
+    if (xQueueReceive(button_event_queue, &ev, 1000/portTICK_PERIOD_MS)) {
+        if ((ev.pin == GPIO_NUM_X) && (ev.event == BUTTON_SHORT_PRESSED)) {
             // ...
         }
-        if ((ev.pin == BUTTON_2) && (ev.event == BUTTON_DOWN)) {
+        if ((ev.pin == GPIO_NUM_X) && (ev.event == BUTTON_LONG_PRESSED)) {
             // ...
         }
     }
@@ -33,9 +45,9 @@ while (true) {
 
 ### BUTTON_DOWN
 
-Triggered when the button is first considered pressed.
+Triggers a BUTTON_SHORT_PRESSED when the button is first considered pressed.
 
-Also triggered every 50ms during a long press.
+Also triggered after 2 sec a BUTTON_LONG_PRESSED.
 
 ### BUTTON_UP
 

@@ -13,138 +13,240 @@
 
 #define TAG "BUTTON"
 
-typedef struct {
-	uint8_t pin;
+
+typedef struct
+{
+    gpio_num_t pin;
+    button_state_t state;
     bool inverted;
-	uint16_t history;
+    uint16_t history;
     uint64_t down_time;
 } debounce_t;
 
-int pin_count = -1;
-debounce_t * debounce;
-QueueHandle_t * queue;
 
-static void update_button(debounce_t *d) {
+// int pin_count = -1;
+// debounce_t * debounce;
+// ¤QueueHandle_t queue;
+
+static void update_button(debounce_t *d)
+{
     d->history = (d->history << 1) | gpio_get_level(d->pin);
 }
 
-#define MASK   0b1111000000111111
-static bool button_rose(debounce_t *d) {
-    if ((d->history & MASK) == 0b0000000000111111) {
+#define MASK 0b1111000000111111
+static bool button_rose(debounce_t *d)
+{
+    if ((d->history & MASK) == 0b0000000000111111)
+    {
         d->history = 0xffff;
         return 1;
     }
     return 0;
 }
-static bool button_fell(debounce_t *d) {
-    if ((d->history & MASK) == 0b1111000000000000) {
+static bool button_fell(debounce_t *d)
+{
+    if ((d->history & MASK) == 0b1111000000000000)
+    {
         d->history = 0x0000;
         return 1;
     }
     return 0;
 }
-static bool button_down(debounce_t *d) {
-    if (d->inverted) return button_fell(d);
+static bool button_down(debounce_t *d)
+{
+    if (d->inverted)
+        return button_fell(d);
     return button_rose(d);
 }
-static bool button_up(debounce_t *d) {
-    if (d->inverted) return button_rose(d);
+static bool button_up(debounce_t *d)
+{
+    if (d->inverted)
+        return button_rose(d);
     return button_fell(d);
 }
 
 #define LONG_PRESS_DURATION (2000)
 
-static uint32_t millis() {
+static uint32_t millis()
+{
     return esp_timer_get_time() / 1000;
 }
 
-static void send_event(debounce_t db, int ev) {
-    button_event_t event = {
-        .pin = db.pin,
-        .event = ev,
-    };
-    xQueueSend(queue, &event, portMAX_DELAY);
+static void send_event(QueueHandle_t queue, debounce_t db, int ev)
+{
+    if(queue){
+            
+        button_event_t event = {
+            .pin = db.pin,
+            .event = ev,
+        };
+        xQueueSend(queue, &event, portMAX_DELAY);
+    }
 }
 
 static void button_task(void *pvParameter)
 {
-    while (1) {
-        for (int idx=0; idx<pin_count; idx++) {
-            update_button(&debounce[idx]);
-            if (debounce[idx].down_time && (millis() - debounce[idx].down_time > LONG_PRESS_DURATION)) {
-                debounce[idx].down_time = 0;
-                ESP_LOGI(TAG, "%d LONG", debounce[idx].pin);
-                int i=0;
-                while (!button_up(&debounce[idx])) {
-                    if (!i) send_event(debounce[idx], BUTTON_DOWN);
-                    i++;
-                    if (i>=5) i=0;
-                    vTaskDelay(10/portTICK_PERIOD_MS);
-                    update_button(&debounce[idx]);
+    ESP_LOGI(TAG,"btn task start");
+    button_info_t *btn_info = (button_info_t *)pvParameter;
+    ESP_LOGI(TAG,"pin %u",btn_info->pin_list[0]);
+    QueueHandle_t queue = btn_info->queue;
+    
+    // Initialize global state and queue
+    debounce_t *debounce = calloc(btn_info->pin_count, sizeof(debounce_t));
+
+    for (int index = 0; index < btn_info->pin_count; index++)
+    {
+        ESP_LOGI(TAG, "Registering button input: %d", btn_info->pin_list[index]);
+        debounce[index].pin = btn_info->pin_list[index];
+        debounce[index].down_time = 0;
+        debounce[index].inverted = true;
+        if (debounce[index].inverted)
+            debounce[index].history = 0xffff;
+    }
+
+    ESP_LOGI(TAG,"btn task loop start");
+    while (1)
+    {
+        for (int index = 0; index < btn_info->pin_count; index++)
+        {
+            update_button(&debounce[index]);
+            if (debounce[index].down_time && (millis() - debounce[index].down_time > LONG_PRESS_DURATION))
+            {
+                if(debounce[index].state == BUTTON_SHORT_PRESSED){
+                    debounce[index].state = BUTTON_LONG_PRESSED;
+                    //ESP_LOGI(TAG, "%d LONG", debounce[index].pin);
+                    send_event(queue, debounce[index], BUTTON_LONG_PRESSED);
                 }
-                ESP_LOGI(TAG, "%d UP", debounce[idx].pin);
-                send_event(debounce[idx], BUTTON_UP);
-            } else if (button_down(&debounce[idx])) {
-                debounce[idx].down_time = millis();
-                ESP_LOGI(TAG, "%d DOWN", debounce[idx].pin);
-                send_event(debounce[idx], BUTTON_DOWN);
-            } else if (button_up(&debounce[idx])) {
-                debounce[idx].down_time = 0;
-                ESP_LOGI(TAG, "%d UP", debounce[idx].pin);
-                send_event(debounce[idx], BUTTON_UP);
+                else if (button_up(&debounce[index]))
+                {
+                    if(debounce[index].state != BUTTON_NOT_PRESSED){
+                        debounce[index].down_time = 0;
+                        debounce[index].state = BUTTON_NOT_PRESSED;
+                        //ESP_LOGI(TAG, "%d UP", debounce[index].pin);
+                        send_event(queue, debounce[index], BUTTON_NOT_PRESSED);
+                    }
+                }
+            }
+            else if (button_down(&debounce[index]))
+            {
+                if(debounce[index].state == BUTTON_NOT_PRESSED){
+                    debounce[index].state = BUTTON_SHORT_PRESSED;
+                    debounce[index].down_time = millis();
+                    //ESP_LOGI(TAG, "%d DOWN", debounce[index].pin);
+                    send_event(queue, debounce[index], BUTTON_SHORT_PRESSED);
+                }
+            }
+            else if (button_up(&debounce[index]))
+            {
+                if(debounce[index].state != BUTTON_NOT_PRESSED){
+                    debounce[index].down_time = 0;
+                    debounce[index].state = BUTTON_NOT_PRESSED;
+                    //ESP_LOGI(TAG, "%d UP", debounce[index].pin);
+                    send_event(queue, debounce[index], BUTTON_NOT_PRESSED);
+                }
             }
         }
-        vTaskDelay(10/portTICK_PERIOD_MS);
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }
-
-QueueHandle_t * button_init(unsigned long long pin_select) {
-    return pulled_button_init(pin_select, GPIO_FLOATING);
-}
-
-
-QueueHandle_t * pulled_button_init(unsigned long long pin_select, gpio_pull_mode_t pull_mode)
+QueueHandle_t button_create_queue(void)
 {
-    if (pin_count != -1) {
-        ESP_LOGI(TAG, "Already initialized");
-        return NULL;
+    return xQueueCreate(4, sizeof(button_event_t));
+}
+
+esp_err_t button_init(button_info_t *info, gpio_num_t *pin_select)
+{
+    return pulled_button_init(info, pin_select, GPIO_FLOATING);
+}
+
+esp_err_t button_set_queue(button_info_t *info, QueueHandle_t queue)
+{
+    esp_err_t err = ESP_OK;
+    if (info)
+    {
+        info->queue = queue;
     }
+    else
+    {
+        ESP_LOGE(TAG, "info is NULL");
+        err = ESP_ERR_INVALID_ARG;
+    }
+    return err;
+}
+
+esp_err_t pulled_button_init(button_info_t *info, gpio_num_t *pin_select, gpio_pull_mode_t pull_mode)
+{
+    esp_err_t err = ESP_OK;
+    if (!info)
+    {
+        ESP_LOGE(TAG, "info is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (info->pin_count != 0)
+    {
+        ESP_LOGE(TAG, "Already initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Scan the pin map to determine number of pins and create mask
+    uint64_t pin_select_mask = 0;
+    info->pin_count = 0;
+    for (int inx = 0; inx <= 39; inx++)
+    {
+        ESP_LOGI(TAG,"%u",pin_select[inx]);
+        if (pin_select[inx] == GPIO_NUM_NC)
+        {
+            break;
+        }
+        if ((0 <= pin_select[inx]) && (39 >= pin_select[inx]))
+        {
+        ESP_LOGI(TAG,"%u check ok",pin_select[inx]);
+            if(pin_select_mask & (1ULL << pin_select[inx])){
+                ESP_LOGE(TAG, "Pin occurs twich in input");
+            }else{
+                pin_select_mask |= (1ULL << pin_select[inx]);
+                info->pin_count++;
+            }
+        }
+    }
+    // Here the pin_names array is created
+    pin_select_mask = 0;
+    uint8_t c_index = 0;
+    info->pin_list = calloc(info->pin_count,sizeof(gpio_num_t));
+    for (int inx = 0; inx <= 39; inx++)
+    {
+        if (pin_select[inx] == GPIO_NUM_NC)
+        {
+            break;
+        }
+        if ((0 <= pin_select[inx]) && (39 >= pin_select[inx]))
+        {
+            if(pin_select_mask & (1ULL << pin_select[inx])){
+                ESP_LOGE(TAG, "Pin occurs twich in input");
+            }else{
+                info->pin_list[c_index++] = pin_select[inx]; 
+                pin_select_mask |= (1ULL << pin_select[inx]);
+            }
+        }
+    }
+    ESP_LOGI(TAG,"%llu test",pin_select_mask);
 
     // Configure the pins
     gpio_config_t io_conf;
     io_conf.mode = GPIO_MODE_INPUT;
     io_conf.pull_up_en = (pull_mode == GPIO_PULLUP_ONLY || pull_mode == GPIO_PULLUP_PULLDOWN);
-    io_conf.pull_down_en = (pull_mode == GPIO_PULLDOWN_ONLY || pull_mode == GPIO_PULLUP_PULLDOWN);;
-    io_conf.pin_bit_mask = pin_select;
-    gpio_config(&io_conf);
-
-    // Scan the pin map to determine number of pins
-    pin_count = 0;
-    for (int pin=0; pin<=39; pin++) {
-        if ((1ULL<<pin) & pin_select) {
-            pin_count++;
-        }
-    }
-
-    // Initialize global state and queue
-    debounce = calloc(pin_count, sizeof(debounce_t));
-    queue = xQueueCreate(4, sizeof(button_event_t));
-
-    // Scan the pin map to determine each pin number, populate the state
-    uint32_t idx = 0;
-    for (int pin=0; pin<=39; pin++) {
-        if ((1ULL<<pin) & pin_select) {
-            ESP_LOGI(TAG, "Registering button input: %d", pin);
-            debounce[idx].pin = pin;
-            debounce[idx].down_time = 0;
-            debounce[idx].inverted = true;
-            if (debounce[idx].inverted) debounce[idx].history = 0xffff;
-            idx++;
-        }
+    io_conf.pull_down_en = (pull_mode == GPIO_PULLDOWN_ONLY || pull_mode == GPIO_PULLUP_PULLDOWN);
+    
+    io_conf.pin_bit_mask = pin_select_mask;
+    err = gpio_config(&io_conf);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "GPIO init failed");
+        return err;
     }
 
     // Spawn a task to monitor the pins
-    xTaskCreate(&button_task, "button_task", 4096, NULL, 10, NULL);
-
-    return queue;
+    xTaskCreate(&button_task, "button_task", 4096, (void *)info, 10, info->task_handle);
+    return err;
 }
