@@ -31,10 +31,10 @@ button_event_t ev;
 
 while (true) {
     if (xQueueReceive(button_event_queue, &ev, 1000/portTICK_PERIOD_MS)) {
-        if ((ev.pin == GPIO_NUM_X) && (ev.event == BUTTON_SHORT_PRESSED)) {
+        if ((ev.pin == GPIO_NUM_X) && (ev.event == BUTTON_RISING_EDGE)) {
             // ...
         }
-        if ((ev.pin == GPIO_NUM_X) && (ev.event == BUTTON_LONG_PRESSED)) {
+        if ((ev.pin == GPIO_NUM_X) && (ev.event == BUTTON_FALLING_EDGE_LONG)) {
             // ...
         }
     }
@@ -42,13 +42,15 @@ while (true) {
 ```
 
 ## Event Types
+All events contain which pin the event has occured on.
+### BUTTON_NOTHING
 
-### BUTTON_DOWN
-
-Triggers a BUTTON_SHORT_PRESSED when the button is first considered pressed.
-
-Also triggered after 2 sec a BUTTON_LONG_PRESSED.
-
-### BUTTON_UP
-
-Triggered when the button is considered released. In most cases you can use either the UP or DOWN event for your application, and ignore the other.
+Blank event, used as "Null"
+### BUTTON_RISING_EDGE
+Event triggered immediately button is pressed down. 
+### BUTTON_LONG_PRESS
+Event is triggered when a button has been pressed for the period specified a long press. Note that the button may still be pressed down.
+### BUTTON_FALLING_EDGE
+Event is triggered when button is released.
+### BUTTON_FALLING_EDGE_LONG
+Event is triggered when button is released after being push down long enough to trigger a BUTTON_LONG_PRESS.

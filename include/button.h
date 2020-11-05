@@ -8,14 +8,15 @@
 extern "C" {
 #endif
 
-#define PIN_BIT(x) (1ULL<<x)
 
 typedef enum {
-    BUTTON_NOT_PRESSED=0,
-    BUTTON_SHORT_PRESSED=1,
-    BUTTON_LONG_PRESSED=2
-
+    BUTTON_NOTHING=0,                 
+    BUTTON_RISING_EDGE=1,
+    BUTTON_LONG_PRESS=2,
+    BUTTON_FALLING_EDGE=3,
+    BUTTON_FALLING_EDGE_LONG=4
 } button_state_t;
+
 
 typedef struct {
 	gpio_num_t pin;
@@ -28,6 +29,8 @@ typedef struct
     QueueHandle_t queue;                    ///< Quehandle for button events
     TaskHandle_t task_handle;               ///< Taskhandle to button task
     uint8_t pin_count;                      ///< Number of pins
+    uint32_t long_press_time_ms;            ///< Time in ms for a press to be registered as a long press, defaults to 2000 if not set when process is started 
+    bool inverted;                          ///< Inverted
 } button_info_t;
 
 

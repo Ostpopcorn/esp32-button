@@ -13,20 +13,20 @@
 
 #define TAG "BUTTON"
 
-
+typedef enum{
+    BUTTON_INTERNAL_RELEASED= 1,
+    BUTTON_INTERNAL_PRESSED,
+    BUTTON_INTERNAL_LONG_PRESS
+}button_internal_state_t;
 typedef struct
 {
     gpio_num_t pin;
-    button_state_t state;
+    button_internal_state_t state;
     bool inverted;
     uint16_t history;
     uint64_t down_time;
 } debounce_t;
 
-
-// int pin_count = -1;
-// debounce_t * debounce;
-// ¤QueueHandle_t queue;
 
 static void update_button(debounce_t *d)
 {
@@ -89,7 +89,6 @@ static void button_task(void *pvParameter)
     ESP_LOGI(TAG,"btn task start");
     button_info_t *btn_info = (button_info_t *)pvParameter;
     ESP_LOGI(TAG,"pin %u",btn_info->pin_list[0]);
-    QueueHandle_t queue = btn_info->queue;
     
     // Initialize global state and queue
     debounce_t *debounce = calloc(btn_info->pin_count, sizeof(debounce_t));
@@ -99,7 +98,9 @@ static void button_task(void *pvParameter)
         ESP_LOGI(TAG, "Registering button input: %d", btn_info->pin_list[index]);
         debounce[index].pin = btn_info->pin_list[index];
         debounce[index].down_time = 0;
-        debounce[index].inverted = true;
+        debounce[index].inverted = btn_info->inverted;
+        debounce[index].state = BUTTON_INTERNAL_RELEASED;
+        
         if (debounce[index].inverted)
             debounce[index].history = 0xffff;
     }
@@ -110,39 +111,44 @@ static void button_task(void *pvParameter)
         for (int index = 0; index < btn_info->pin_count; index++)
         {
             update_button(&debounce[index]);
-            if (debounce[index].down_time && (millis() - debounce[index].down_time > LONG_PRESS_DURATION))
+            // Criteria for a press to be called long_press
+            if (debounce[index].down_time && (millis() - debounce[index].down_time > btn_info->long_press_time_ms))
             {
-                if(debounce[index].state == BUTTON_SHORT_PRESSED){
-                    debounce[index].state = BUTTON_LONG_PRESSED;
-                    //ESP_LOGI(TAG, "%d LONG", debounce[index].pin);
-                    send_event(queue, debounce[index], BUTTON_LONG_PRESSED);
-                }
-                else if (button_up(&debounce[index]))
+                if (button_up(&debounce[index]))
                 {
-                    if(debounce[index].state != BUTTON_NOT_PRESSED){
+                    if(debounce[index].state == BUTTON_INTERNAL_LONG_PRESS){
                         debounce[index].down_time = 0;
-                        debounce[index].state = BUTTON_NOT_PRESSED;
+                        debounce[index].state = BUTTON_INTERNAL_RELEASED;
                         //ESP_LOGI(TAG, "%d UP", debounce[index].pin);
-                        send_event(queue, debounce[index], BUTTON_NOT_PRESSED);
+                        send_event(btn_info->queue, debounce[index], BUTTON_FALLING_EDGE_LONG);
+                    }else{
+                        debounce[index].down_time = 0;
+                        debounce[index].state = BUTTON_INTERNAL_RELEASED;
+                        //ESP_LOGI(TAG, "%d UP", debounce[index].pin);
+                        send_event(btn_info->queue, debounce[index], BUTTON_FALLING_EDGE);
                     }
+                }else if(debounce[index].state == BUTTON_INTERNAL_PRESSED){
+                    debounce[index].state = BUTTON_INTERNAL_LONG_PRESS;
+                    //ESP_LOGI(TAG, "%d LONG", debounce[index].pin);
+                    send_event(btn_info->queue, debounce[index], BUTTON_LONG_PRESS);
                 }
             }
             else if (button_down(&debounce[index]))
             {
-                if(debounce[index].state == BUTTON_NOT_PRESSED){
-                    debounce[index].state = BUTTON_SHORT_PRESSED;
+                if(debounce[index].state == BUTTON_INTERNAL_RELEASED){
+                    debounce[index].state = BUTTON_INTERNAL_PRESSED;
                     debounce[index].down_time = millis();
                     //ESP_LOGI(TAG, "%d DOWN", debounce[index].pin);
-                    send_event(queue, debounce[index], BUTTON_SHORT_PRESSED);
+                    send_event(btn_info->queue, debounce[index], BUTTON_RISING_EDGE);
                 }
             }
             else if (button_up(&debounce[index]))
             {
-                if(debounce[index].state != BUTTON_NOT_PRESSED){
+                if(debounce[index].state != BUTTON_INTERNAL_RELEASED){
                     debounce[index].down_time = 0;
-                    debounce[index].state = BUTTON_NOT_PRESSED;
+                    debounce[index].state = BUTTON_INTERNAL_RELEASED;
                     //ESP_LOGI(TAG, "%d UP", debounce[index].pin);
-                    send_event(queue, debounce[index], BUTTON_NOT_PRESSED);
+                    send_event(btn_info->queue, debounce[index], BUTTON_FALLING_EDGE);
                 }
             }
         }
@@ -245,7 +251,9 @@ esp_err_t pulled_button_init(button_info_t *info, gpio_num_t *pin_select, gpio_p
         ESP_LOGE(TAG, "GPIO init failed");
         return err;
     }
-
+    if (info->long_press_time_ms <= 0){
+        info->long_press_time_ms = 2000;
+    }
     // Spawn a task to monitor the pins
     xTaskCreate(&button_task, "button_task", 4096, (void *)info, 10, info->task_handle);
     return err;
