@@ -33,6 +33,8 @@ typedef struct
     bool inverted;                          ///< Inverted
 } button_info_t;
 
+#define GENERATE_BUTTON_INFO_T {.pin_list = NULL, .queue = NULL, .task_handle = NULL, .pin_count = 0, .long_press_time_ms = 0, .inverted =false, }
+#define GENERATE_BUTTON_EVENT_T {.pin = GPIO_NUM_NC,.event= BUTTON_NOTHING,}
 
 QueueHandle_t button_create_queue(void);
 esp_err_t button_set_queue(button_info_t * info, QueueHandle_t queue);
