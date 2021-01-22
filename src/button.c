@@ -86,9 +86,9 @@ static void send_event(QueueHandle_t queue, debounce_t db, int ev)
 
 static void button_task(void *pvParameter)
 {
-    ESP_LOGI(TAG,"btn task start");
+    ESP_LOGI(TAG,"task start");
     button_info_t *btn_info = (button_info_t *)pvParameter;
-    ESP_LOGI(TAG,"pin %u",btn_info->pin_list[0]);
+    // ESP_LOGI(TAG,"pin %u",btn_info->pin_list[0]);
     
     // Initialize global state and queue
     debounce_t *debounce = calloc(btn_info->pin_count, sizeof(debounce_t));
@@ -200,14 +200,14 @@ esp_err_t pulled_button_init(button_info_t *info, gpio_num_t *pin_select, gpio_p
     info->pin_count = 0;
     for (int inx = 0; inx <= 39; inx++)
     {
-        ESP_LOGI(TAG,"%u",pin_select[inx]);
+        ESP_LOGV(TAG,"%u",pin_select[inx]);
         if (pin_select[inx] == GPIO_NUM_NC)
         {
             break;
         }
         if ((0 <= pin_select[inx]) && (39 >= pin_select[inx]))
         {
-        ESP_LOGI(TAG,"%u check ok",pin_select[inx]);
+        ESP_LOGV(TAG,"%u check ok",pin_select[inx]);
             if(pin_select_mask & (1ULL << pin_select[inx])){
                 ESP_LOGE(TAG, "Pin occurs twich in input");
             }else{
@@ -236,7 +236,7 @@ esp_err_t pulled_button_init(button_info_t *info, gpio_num_t *pin_select, gpio_p
             }
         }
     }
-    ESP_LOGI(TAG,"%llu test",pin_select_mask);
+    // ESP_LOGI(TAG,"%llu test",pin_select_mask);
 
     // Configure the pins
     gpio_config_t io_conf;
