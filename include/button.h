@@ -1,7 +1,9 @@
 #ifndef BUTTON_DEBOUNCER_H
 #define BUTTON_DEBOUNCER_H
 
+#include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/task.h"
 #include "driver/gpio.h"
 
 #ifdef __cplusplus
